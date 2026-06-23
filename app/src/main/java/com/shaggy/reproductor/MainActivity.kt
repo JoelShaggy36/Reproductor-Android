@@ -15,12 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -44,6 +43,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.shaggy.reproductor.ui.theme.ReproductorTheme
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,13 +71,16 @@ fun ReproductorApp(){
     var progresoAudio by remember { mutableFloatStateOf(0.0f) }
     //Creacion de hilo para avisar a compose el estado de reproduccion de audio para dibujarlo en pantalla
     LaunchedEffect(musicaSonando) {
-        while (musicaSonando == true){
-            progresoAudio = mediaPlayer.currentPosition.toFloat()/mediaPlayer.duration.toFloat()
-            delay(500)
+        while (musicaSonando){
+            if (mediaPlayer.duration > 0) { // Evitamos dividir entre cero si aún no carga el audio
+                // Calculamos la fracción (Posición Actual / Duración Total)
+                progresoAudio = mediaPlayer.currentPosition.toFloat() / mediaPlayer.duration.toFloat()
+            }
+            delay(500.milliseconds)
         }
     }
-
-
+    //VAriable reactiva para índice de canción seleccionada
+    var indiceCancionActual by rememberSaveable { mutableIntStateOf(0) }
 
     // Variable que guarda la pantalla actual que se está mostrando.
     // rememberSaveable conserva el valor aunque la pantalla se recree.
@@ -255,8 +258,52 @@ fun ReproductorApp(){
                     Text("PANTALLA DE CANCIONES FAVORITAS")
 
                 // Muestra texto del reproductor
-                Destino.REPRODUCTOR ->
-                    ReproductorScreen(cancion = DatosMusica().obtenerCanciones()[1], musicaSonando, {if (mediaPlayer.isPlaying == true) mediaPlayer.pause() else mediaPlayer.start()},progresoAudio, {})
+                Destino.REPRODUCTOR -> {
+                    val lista = DatosMusica().obtenerCanciones()
+                    val cancionActual = lista[indiceCancionActual]
+                    ReproductorScreen(// Obtenemos la canción 1 solo para pruebas
+                        cancion = cancionActual,
+                        //verificar con verdadero o falso si se está reproduciendo
+                        musicaSonando,
+                        //Obtenemos el progreso
+                        progresoAudio,
+                        formatearTiempo(mediaPlayer.currentPosition),
+                        formatearTiempo(mediaPlayer.duration),
+                        //Play-Pause para implementar el Hilo y el botón
+                        {
+                            if (mediaPlayer.isPlaying) { //Si la función media player está reproduciendo algo
+                                mediaPlayer.pause()        //Pausa la reproducción
+                                musicaSonando = false
+                            }  // y cambia el verificador a falso para actualizar el Hilo y botón gráfico
+                            else {
+                                mediaPlayer.start()   //si no media player reproducirá el contenido
+                                musicaSonando = true
+                            }  // el verificador será true para actualizar compose
+                        },
+                        { nuevoProgreso ->
+                            // 1. Actualizamos la barra visualmente en Compose
+                            progresoAudio = nuevoProgreso
+                            // 2. Calculamos los milisegundos reales
+                            val milisegundosDestino = (nuevoProgreso * mediaPlayer.duration).toInt()
+                            // 3. Le ordenamos al reproductor físico que viaje a ese milisegundo
+                            mediaPlayer.seekTo(milisegundosDestino)
+                        },
+                        onAnteriorClick = {
+                            if (indiceCancionActual > 0) {
+                                indiceCancionActual-- // Si no es la primera, retrocede 1
+                            } else {
+                                indiceCancionActual = lista.size - 1 // Si es la primera, salta a la última
+                            }
+                        },
+                        onSiguienteClick = {
+                            if (indiceCancionActual < lista.size - 1) {
+                                indiceCancionActual++ // Si no es la última, avanza 1
+                            } else {
+                                indiceCancionActual = 0 // Si es la última, regresa a la primera
+                            }
+                        }
+                    )
+                }
 
                 // Muestra texto de playlists
                 Destino.PLAYLIST ->
@@ -265,7 +312,6 @@ fun ReproductorApp(){
         }
     }
 }
-
 
 
 @Preview(showBackground = true, showSystemUi = true)
