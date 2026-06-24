@@ -2,6 +2,7 @@ package com.shaggy.reproductor
 
 import android.annotation.SuppressLint
 import android.media.MediaPlayer
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -56,10 +57,15 @@ fun ReproductorScreen(cancion: Cancion,
                       onTogglePlay: () -> Unit,
                       onProgresoChange: (Float) -> Unit,
                       onAnteriorClick: () -> Unit,
-                      onSiguienteClick: () -> Unit
+                      onSiguienteClick: () -> Unit,
+                      nuevoVolumen: Float,
+                      onVolumenChange: (Float) -> Unit,
+                      onCerrarClick: () -> Unit
 ){
-    var volume by remember { mutableFloatStateOf(0.5f) }
-
+    // Si el reproductor está visible, intercepta el botón de atrás del teléfono
+    BackHandler(enabled = true) {
+        onCerrarClick() // Ejecuta el mismo cable de cerrar para regresar a la lista de forma segura
+    }
 
     Column(
         modifier = Modifier
@@ -78,16 +84,14 @@ fun ReproductorScreen(cancion: Cancion,
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            IconButton(onClick = { Destino.TODAS_LAS_CANCIONES  }) {
+            IconButton(onClick = { onCerrarClick()  }) {
                 Icon(Icons.Default.KeyboardArrowDown,
                     contentDescription = "Cerrar",
                     tint = Color.White)
             }
             Text("REPRODUCIENDO AHORA", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-            IconButton(onClick = { /* Abrir menú */ }) {
-                Icon(Icons.Default.MoreVert,
-                    contentDescription = "Opciones",
-                    tint = Color.White)
+            IconButton(onClick = {}) {
+                //no coloque ningun icono, pero deje el icon button por estetica para que no se amontonara el text reproduciendo ahora.
             }
         }
 
@@ -175,8 +179,8 @@ fun ReproductorScreen(cancion: Cancion,
                 contentDescription = "Bajar volumen",
                 tint = Color.White)
             Slider(
-                value = volume,
-                onValueChange = { volume = it },
+                value = nuevoVolumen,
+                onValueChange = { onVolumenChange(it) },
                 modifier = Modifier.weight(1f),
                 colors = SliderDefaults.colors(thumbColor = Color.White,
                     activeTrackColor = Color.White.copy(alpha = 0.5f))
@@ -199,5 +203,16 @@ fun formatearTiempo(milisegundos: Int): String {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun ReproductorPreview() {
-    ReproductorScreen(cancion = DatosMusica().obtenerCanciones()[1],false, 0.0f, "","",{},  {}, {}, {})
+    ReproductorScreen(cancion = DatosMusica().obtenerCanciones()[1],
+        false, 0.0f,
+        "",
+        "",
+        {},
+        {},
+        {},
+        {},
+        0.1f,
+        {},
+        {}
+    )
 }

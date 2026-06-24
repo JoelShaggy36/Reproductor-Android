@@ -1,10 +1,15 @@
 package com.shaggy.reproductor
 
+import android.content.Context
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -62,33 +67,91 @@ class MainActivity : ComponentActivity() {
 // Indica que esta función dibuja una interfaz gráfica con Jetpack Compose
 @Composable
 fun ReproductorApp(){
-    //Inicializacion de Objeto mediaPlayer
+    //Inicialización de Objeto mediaPlayer
     val context = LocalContext.current
-    val mediaPlayer = remember { MediaPlayer.create(context, R.raw.afro) }
-    //creacion de estado para verificar si la musica se esta reproduciendo
+    var mediaPlayer by remember { mutableStateOf(MediaPlayer.create(context, R.raw.afro)) }
+    // Accedemos al control de volumen físico del sistema operativo
+    val audioManager = remember {
+        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
+
+    //creación de estado para verificar si la música se está reproduciendo
     var musicaSonando by remember { mutableStateOf(false) }
-    //Creacion de estado para barra de progreso reactiva
+
+    //Creación de estado para barra de progreso reactiva
     var progresoAudio by remember { mutableFloatStateOf(0.0f) }
-    //Creacion de hilo para avisar a compose el estado de reproduccion de audio para dibujarlo en pantalla
+
+    val volumenMaximoInicial = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
+    val volumenActualInicial = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
+
+    //Creacion de variable reactiva para barra de volumen
+    var volumenAudio by remember {
+        mutableFloatStateOf(volumenActualInicial / volumenMaximoInicial)}
+
+    //Variable reactiva para índice de canción seleccionada
+    var indiceCancionActual by rememberSaveable { mutableIntStateOf(0) }
+
+    // Variable que guarda la pantalla actual que se está mostrando.
+    // rememberSavable conserva el valor aunque la pantalla se recree.
+    // La aplicación inicia mostrando "TODAS_LAS_CANCIONES".
+    var pantallaActual by rememberSaveable {
+        mutableStateOf(Destino.REPRODUCTOR)
+    }
+    //Creación de hilo para avisar a compose el estado de reproducción de audio para dibujarlo en pantalla
     LaunchedEffect(musicaSonando) {
         while (musicaSonando){
             if (mediaPlayer.duration > 0) { // Evitamos dividir entre cero si aún no carga el audio
                 // Calculamos la fracción (Posición Actual / Duración Total)
                 progresoAudio = mediaPlayer.currentPosition.toFloat() / mediaPlayer.duration.toFloat()
             }
-            delay(500.milliseconds)
+            delay(100.milliseconds)
         }
     }
-    //VAriable reactiva para índice de canción seleccionada
-    var indiceCancionActual by rememberSaveable { mutableIntStateOf(0) }
+    // Hilo de fondo que se ejecuta mientras el reproductor esté visible
+    LaunchedEffect(pantallaActual) {
+        // Si el usuario está viendo el reproductor, empezamos a monitorear el hardware
+        while (pantallaActual == Destino.REPRODUCTOR) {
+            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
+            val actual = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
 
-    // Variable que guarda la pantalla actual que se está mostrando.
-    // rememberSaveable conserva el valor aunque la pantalla se recree.
-    // La aplicación inicia mostrando "TODAS_LAS_CANCIONES".
-    var pantallaActual by rememberSaveable {
-        mutableStateOf(Destino.REPRODUCTOR)
+            // Si el usuario movió los botones físicos, actualizamos nuestra barra verde
+            val porcentajeReal = actual / max
+            if (volumenAudio != porcentajeReal) {
+                volumenAudio = porcentajeReal
+            }
+
+            delay(100.milliseconds)
+        }
     }
 
+    // Este bloque vigila el índice de la canción actual
+    LaunchedEffect(indiceCancionActual) {
+        // 1. Si ya estaba sonando algo, lo detenemos y liberamos para no saturar la memoria
+        mediaPlayer.stop()
+        mediaPlayer.release()
+
+        // 2. Traemos la lista de canciones para saber cuál toca ahora
+        val lista = DatosMusica().obtenerCanciones()
+        val cancionNueva = lista[indiceCancionActual]
+
+        // 3. Creamos un nuevo reproductor cargando el archivo de audio dinámico de la nueva canción
+        mediaPlayer = MediaPlayer.create(context, cancionNueva.audio)
+
+        //Autoplay al terminar de reproducir una cancion
+        mediaPlayer.setOnCompletionListener {
+            // Cuando la canción termina, ejecutamos exactamente la misma lógica del botón "Siguiente"
+            if (indiceCancionActual < lista.size - 1) {
+                indiceCancionActual++
+            } else {
+                indiceCancionActual = 0 // Si era la última, regresa a la primera
+            }
+        }
+
+        // 4. Si la app estaba en modo "reproduciendo", hacemos que la nueva canción arranque de inmediato
+        if (musicaSonando) {
+            mediaPlayer.start()
+        }
+    }
     // Scaffold es una estructura base que organiza la pantalla
     // permitiendo usar barra superior, barra inferior y botón flotante.
     Scaffold(
@@ -257,15 +320,22 @@ fun ReproductorApp(){
                 Destino.CANCIONES_FAVORITAS ->
                     Text("PANTALLA DE CANCIONES FAVORITAS")
 
-                // Muestra texto del reproductor
-                Destino.REPRODUCTOR -> {
-                    val lista = DatosMusica().obtenerCanciones()
-                    val cancionActual = lista[indiceCancionActual]
-                    ReproductorScreen(// Obtenemos la canción 1 solo para pruebas
-                        cancion = cancionActual,
-                        //verificar con verdadero o falso si se está reproduciendo
-                        musicaSonando,
-                        //Obtenemos el progreso
+                // Muestra el reproductor
+                Destino.REPRODUCTOR ->
+                    //Creacion de contenedor para animacion al cerrar el reproductor
+                    AnimatedVisibility(
+                        visible = (pantallaActual == Destino.REPRODUCTOR),
+                        enter = slideInVertically(initialOffsetY = { it }), // Desplaza de abajo hacia arriba al entrar
+                        exit = slideOutVertically(targetOffsetY = { it })   // Desplaza de arriba hacia abajo al salir
+                    ) {
+                        val lista = DatosMusica().obtenerCanciones()
+                        val cancionActual = lista[indiceCancionActual]
+                        ReproductorScreen(
+                            // Obtenemos la canción
+                            cancion = cancionActual,
+                            //verificar con verdadero o falso si se está reproduciendo
+                            musicaSonando,
+                            //Obtenemos el progreso
                         progresoAudio,
                         formatearTiempo(mediaPlayer.currentPosition),
                         formatearTiempo(mediaPlayer.duration),
@@ -301,7 +371,27 @@ fun ReproductorApp(){
                             } else {
                                 indiceCancionActual = 0 // Si es la última, regresa a la primera
                             }
-                        }
+                        },
+                        volumenAudio,
+
+                        onVolumenChange = {
+                            nuevoVolumen ->
+                            volumenAudio = nuevoVolumen // Actualiza tu barra verde en la UI
+
+                            // 1. Obtención del tope máximo del volumen de música del dispositivo (ej: 10)
+                            val volumenMaximo = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+
+                            // 2. Multiplicar el porcentaje (0.0 a 1.0) por el tope máximo para sacar el entero destino
+                            val volumenDestinoEnEntero = (nuevoVolumen * volumenMaximo).toInt()
+
+                            // 3. Le ordenamos al sistema operativo cambiar el volumen general de la música
+                            audioManager.setStreamVolume(
+                                AudioManager.STREAM_MUSIC,
+                                volumenDestinoEnEntero,
+                                0 // 0 para no mostrar nada y AudioManager.FLAG_SHOW_UI para mostrar la barra nativa del sistema.
+                            )
+                        },
+                        onCerrarClick = { pantallaActual = Destino.TODAS_LAS_CANCIONES }
                     )
                 }
 
