@@ -312,9 +312,18 @@ fun ReproductorApp(){
                 // Muestra la lista de canciones
                 Destino.TODAS_LAS_CANCIONES ->
                     CancionesScreen(
-                        listaCanciones =
-                            DatosMusica().obtenerCanciones()
-                    )
+                        listaCanciones = DatosMusica().obtenerCanciones(),
+                        onCancionClick = { indiceSeleccionado ->
+                            // 1. Actualizamos el índice global (esto activará de golpe el LaunchedEffect que carga el audio)
+                            indiceCancionActual = indiceSeleccionado
+
+                            // 2. Nos aseguramos de encender el interruptor para que empiece a sonar de inmediato
+                            musicaSonando = true
+
+                            // 3. Viajamos al reproductor para que se muestre en pantalla
+                            pantallaActual = Destino.REPRODUCTOR
+                        }
+                    )   
 
                 // Muestra texto de canciones favoritas
                 Destino.CANCIONES_FAVORITAS ->

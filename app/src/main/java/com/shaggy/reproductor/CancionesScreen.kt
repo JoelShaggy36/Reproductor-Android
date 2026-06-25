@@ -1,6 +1,7 @@
 package com.shaggy.reproductor
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
@@ -25,18 +27,23 @@ import androidx.compose.ui.unit.dp
 
 // Función que muestra una lista de canciones en pantalla
 @Composable
-fun CancionesScreen(listaCanciones: List<Cancion>) {
+fun CancionesScreen(listaCanciones: List<Cancion>,
+                    onCancionClick: (Int) -> Unit) {
 
     // LazyColumn crea una lista vertical desplazable.
     // Solo carga los elementos visibles para mejorar el rendimiento.
     LazyColumn {
 
         // Recorre cada canción de la lista recibida
-        items(listaCanciones) { cancion ->
-
-            // Por cada canción llama a CancionItem
-            // para dibujar su información en pantalla
-            CancionItem(cancion)
+        itemsIndexed(listaCanciones) { indice, cancion ->
+            Row(
+                modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onCancionClick(indice) } // <-- Al tocar la fila, disparamos el cable con su posición
+                .padding(16.dp))
+            {
+                CancionItem(cancion)
+            }
         }
     }
 }
@@ -118,7 +125,6 @@ fun CancionItem(cancion: Cancion){
         IconButton(
 
             // Acción que se ejecutará al presionarlo
-            // Actualmente está vacío
             onClick = {}
 
         ) {
@@ -140,6 +146,7 @@ fun CancionesScreenPreview() {
 
     // Muestra una vista previa usando datos de ejemplo
     CancionesScreen(
-        listaCanciones = DatosMusica().obtenerCanciones()
+        listaCanciones = DatosMusica().obtenerCanciones(),
+        {},
     )
 }
