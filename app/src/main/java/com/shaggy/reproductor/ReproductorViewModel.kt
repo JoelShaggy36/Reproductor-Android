@@ -17,9 +17,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
 
@@ -35,57 +37,43 @@ class ReproductorViewModel(application: Application) : AndroidViewModel(applicat
     var mediaPlayer = MediaPlayer.create(context, R.raw.afro)
 
     // 3. Tus variables de estado mutables (Privadas para que nadie las modifique fuera del ViewModel)
-    private val _musicaSonando = MutableStateFlow(false)
-    val musicaSonando = _musicaSonando.asStateFlow() // Esta es la que lee tu MainActivity
+    private var _musicaSonando = MutableStateFlow(false)
+    var musicaSonando = _musicaSonando.asStateFlow() // Esta es la que lee tu MainActivity
 
     private val _progresoAudio = MutableStateFlow(0.0f)
-    val progresoAudio = _progresoAudio.asStateFlow()
+    var progresoAudio = _progresoAudio.asStateFlow()
 
     val volumenMaximoInicial = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
     val volumenActualInicial = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
 
-    //Creacion de variable reactiva para barra de volumen
-    var volumenAudio by remember {
-        mutableFloatStateOf(volumenActualInicial / volumenMaximoInicial)}
+    //Creación de variable reactiva para barra de volumen
+    var volumenAudio = MutableStateFlow(volumenActualInicial / volumenMaximoInicial)
 
     //Variable reactiva para índice de canción seleccionada
-    var indiceCancionActual by rememberSaveable {
-        mutableIntStateOf(0) }
+    var indiceCancionActual = MutableStateFlow(0)
 
     // Variable que guarda la pantalla actual que se está mostrando.
     // rememberSavable conserva el valor aunque la pantalla se recree.
     // La aplicación inicia mostrando "TODAS_LAS_CANCIONES".
-    var pantallaActual by rememberSaveable {
-        mutableStateOf(Destino.REPRODUCTOR)
-    }
+    var pantallaActual = MutableStateFlow(Destino.REPRODUCTOR)
 
 
-    // Este bloque vigila el índice de la canción actual
-    LaunchedEffect(indiceCancionActual) {
-        // 1. Si ya estaba sonando algo, lo detenemos y liberamos para no saturar la memoria
-        mediaPlayer.stop()
-        mediaPlayer.release()
+    init {
+        // Usamos el contenedor de corrutinas del ViewModel
+        viewModelScope.launch {
+            indiceCancionActual.collect { nuevoIndice ->
+                // Cada vez que cambie el índice, detenemos el reproductor de forma nativa
+                mediaPlayer.stop()
+                mediaPlayer.release()
 
-        // 2. Traemos la lista de canciones para saber cuál toca ahora
-        val lista = DatosMusica().obtenerCanciones()
-        val cancionNueva = lista[indiceCancionActual]
+                val lista = DatosMusica().obtenerCanciones()
+                val cancionNueva = lista[nuevoIndice]
+                mediaPlayer = MediaPlayer.create(context, cancionNueva.audio)
 
-        // 3. Creamos un nuevo reproductor cargando el archivo de audio dinámico de la nueva canción
-        mediaPlayer = MediaPlayer.create(context, cancionNueva.audio)
-
-        //Autoplay al terminar de reproducir una cancion
-        mediaPlayer.setOnCompletionListener {
-            // Cuando la canción termina, ejecutamos exactamente la misma lógica del botón "Siguiente"
-            if (indiceCancionActual < lista.size - 1) {
-                indiceCancionActual++
-            } else {
-                indiceCancionActual = 0 // Si era la última, regresa a la primera
+                if (musicaSonando.value) {
+                    mediaPlayer.start()
+                }
             }
-        }
-
-        // 4. Si la app estaba en modo "reproduciendo", hacemos que la nueva canción arranque de inmediato
-        if (musicaSonando) {
-            mediaPlayer.start()
         }
     }
 

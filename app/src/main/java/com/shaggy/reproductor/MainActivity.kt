@@ -28,15 +28,19 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shaggy.reproductor.ui.theme.ReproductorTheme
 import com.shaggy.reproductor.ReproductorViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.runtime.collectAsState
+
 
 class MainActivity : ComponentActivity() {
 
@@ -57,7 +61,10 @@ class MainActivity : ComponentActivity() {
 
 // Indica que esta función dibuja una interfaz gráfica con Jetpack Compose
 @Composable
-fun ReproductorApp(viewModel: Any) {
+fun ReproductorApp(viewModel: ReproductorViewModel) {
+    // 1. Usamos "by" y "collectAsStateWithLifecycle()" para escuchar el flujo en vivo
+    val musicaSonando by viewModel.musicaSonando.collectAsStateWithLifecycle()
+    val progresoAudio by viewModel.progresoAudio.collectAsStateWithLifecycle()
 
 
     // Scaffold es una estructura base que organiza la pantalla
@@ -146,8 +153,7 @@ fun ReproductorApp(viewModel: Any) {
                                 // Acción al hacer clic
                                 .clickable(
                                     onClick = {
-                                        pantallaActual =
-                                            Destino.TODAS_LAS_CANCIONES
+                                        viewModel.pantallaActual.value = Destino.TODAS_LAS_CANCIONES
                                     }
                                 )
                         )
@@ -169,8 +175,7 @@ fun ReproductorApp(viewModel: Any) {
                                 // Cambia a la pantalla del reproductor
                                 .clickable(
                                     onClick = {
-                                        pantallaActual =
-                                            Destino.REPRODUCTOR
+                                        viewModel.pantallaActual.value = Destino.REPRODUCTOR
                                     }
                                 )
                         )
@@ -192,8 +197,7 @@ fun ReproductorApp(viewModel: Any) {
                                 // Cambia a la pantalla de playlists
                                 .clickable(
                                     onClick = {
-                                        pantallaActual =
-                                            Destino.PLAYLIST
+                                        viewModel.pantallaActual.value = Destino.PLAYLIST
                                     }
                                 )
                         )
@@ -212,47 +216,49 @@ fun ReproductorApp(viewModel: Any) {
             modifier = Modifier.padding(innerPadding)
 
         ){
+            val pantallaActual by viewModel.pantallaActual.collectAsStateWithLifecycle()
 
             // Dependiendo del valor de pantallaActual,
             // se muestra una pantalla diferente.
             when (pantallaActual){
 
                 // Muestra la lista de canciones
-                Destino.TODAS_LAS_CANCIONES ->
+                Destino.TODAS_LAS_CANCIONES -> {
                     CancionesScreen(
                         listaCanciones = DatosMusica().obtenerCanciones(),
                         onCancionClick = { indiceSeleccionado ->
                             // 1. Actualizamos el índice global (esto activará de golpe el LaunchedEffect que carga el audio)
-                            indiceCancionActual = indiceSeleccionado
+                            viewModel.indiceCancionActual.value = indiceSeleccionado
 
                             // 2. Nos aseguramos de encender el interruptor para que empiece a sonar de inmediato
-                            musicaSonando = true
+                            viewModel.musicaSonando.value = true
 
                             // 3. Viajamos al reproductor para que se muestre en pantalla
-                            pantallaActual = Destino.REPRODUCTOR
+                            viewModel.pantallaActual.value = Destino.REPRODUCTOR
                         }
                     )
+                }
 
                 // Muestra texto de canciones favoritas
-                Destino.CANCIONES_FAVORITAS ->
-                    Text("PANTALLA DE CANCIONES FAVORITAS")
-
+                Destino.CANCIONES_FAVORITAS -> {
+                Text("PANTALLA DE CANCIONES FAVORITAS")
+            }
                 // Muestra el reproductor
-                Destino.REPRODUCTOR ->
-                    //Creacion de contenedor para animacion al cerrar el reproductor
-                    AnimatedVisibility(
-                        visible = (pantallaActual == Destino.REPRODUCTOR),
-                        enter = slideInVertically(initialOffsetY = { it }), // Desplaza de abajo hacia arriba al entrar
-                        exit = slideOutVertically(targetOffsetY = { it })   // Desplaza de arriba hacia abajo al salir
-                    ) {
-                        val lista = DatosMusica().obtenerCanciones()
-                        val cancionActual = lista[indiceCancionActual]
-                        ReproductorScreen(
-                            // Obtenemos la canción
-                            cancion = cancionActual,
-                            //verificar con verdadero o falso si se está reproduciendo
-                            musicaSonando,
-                            //Obtenemos el progreso
+                Destino.REPRODUCTOR ->{
+                //Creacion de contenedor para animacion al cerrar el reproductor
+                AnimatedVisibility(
+                    visible = (pantallaActual == Destino.REPRODUCTOR),
+                    enter = slideInVertically(initialOffsetY = { it }), // Desplaza de abajo hacia arriba al entrar
+                    exit = slideOutVertically(targetOffsetY = { it })   // Desplaza de arriba hacia abajo al salir
+                ) {
+                    val lista = DatosMusica().obtenerCanciones()
+                    val cancionActual = lista[indiceCancionActual]
+                    ReproductorScreen(
+                        // Obtenemos la canción
+                        cancion = cancionActual,
+                        //verificar con verdadero o falso si se está reproduciendo
+                        musicaSonando,
+                        //Obtenemos el progreso
                         progresoAudio,
                         formatearTiempo(mediaPlayer.currentPosition),
                         formatearTiempo(mediaPlayer.duration),
@@ -269,52 +275,54 @@ fun ReproductorApp(viewModel: Any) {
                         },
                         { nuevoProgreso ->
                             // 1. Actualizamos la barra visualmente en Compose
-                            progresoAudio = nuevoProgreso
+                            viewModel.progresoAudio.value = nuevoProgreso
                             // 2. Calculamos los milisegundos reales
-                            val milisegundosDestino = (nuevoProgreso * mediaPlayer.duration).toInt()
+                            val milisegundosDestino = (nuevoProgreso * viewModel.mediaPlayer.duration).toInt()
                             // 3. Le ordenamos al reproductor físico que viaje a ese milisegundo
-                            mediaPlayer.seekTo(milisegundosDestino)
+                            viewModel.mediaPlayer.seekTo(milisegundosDestino)
                         },
                         onAnteriorClick = {
-                            if (indiceCancionActual > 0) {
-                                indiceCancionActual-- // Si no es la primera, retrocede 1
+                            if (viewModel.indiceCancionActual.value > 0) {
+                                viewModel.indiceCancionActual.value-- // Si no es la primera, retrocede 1
                             } else {
-                                indiceCancionActual = lista.size - 1 // Si es la primera, salta a la última
+                                viewModel.indiceCancionActual.value =
+                                    lista.size - 1 // Si es la primera, salta a la última
                             }
                         },
                         onSiguienteClick = {
-                            if (indiceCancionActual < lista.size - 1) {
-                                indiceCancionActual++ // Si no es la última, avanza 1
+                            if (viewModel.indiceCancionActual.value < lista.size - 1) {
+                                viewModel.indiceCancionActual.value++ // Si no es la última, avanza 1
                             } else {
-                                indiceCancionActual = 0 // Si es la última, regresa a la primera
+                                viewModel.indiceCancionActual.value = 0 // Si es la última, regresa a la primera
                             }
                         },
-                        volumenAudio,
+                        viewModel.volumenAudio.collectAsState().value,
 
-                        onVolumenChange = {
-                            nuevoVolumen ->
-                            volumenAudio = nuevoVolumen // Actualiza tu barra verde en la UI
+                        onVolumenChange = { nuevoVolumen ->
+                            viewModel.volumenAudio.value = nuevoVolumen // Actualiza tu barra verde en la UI
 
                             // 1. Obtención del tope máximo del volumen de música del dispositivo (ej: 10)
-                            val volumenMaximo = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                            val volumenMaximo =
+                                viewModel.audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
 
                             // 2. Multiplicar el porcentaje (0.0 a 1.0) por el tope máximo para sacar el entero destino
                             val volumenDestinoEnEntero = (nuevoVolumen * volumenMaximo).toInt()
 
                             // 3. Le ordenamos al sistema operativo cambiar el volumen general de la música
-                            audioManager.setStreamVolume(
+                            viewModel.audioManager.setStreamVolume(
                                 AudioManager.STREAM_MUSIC,
                                 volumenDestinoEnEntero,
                                 0 // 0 para no mostrar nada y AudioManager.FLAG_SHOW_UI para mostrar la barra nativa del sistema.
                             )
                         },
-                        onCerrarClick = { pantallaActual = Destino.TODAS_LAS_CANCIONES }
+                        onCerrarClick = { viewModel.pantallaActual.value = Destino.TODAS_LAS_CANCIONES }
                     )
                 }
-
+            }
                 // Muestra texto de playlists
-                Destino.PLAYLIST ->
-                    Text("PANTALLA DE PLAYLIST")
+                Destino.PLAYLIST -> {
+                Text("PANTALLA DE PLAYLIST")
+            }
             }
         }
     }
@@ -325,6 +333,6 @@ fun ReproductorApp(viewModel: Any) {
 @Composable
 fun GreetingPreview() {
     ReproductorTheme {
-        ReproductorApp()
+
     }
 }
