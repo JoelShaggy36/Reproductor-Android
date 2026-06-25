@@ -192,13 +192,6 @@ fun ReproductorScreen(cancion: Cancion,
     }
 }
 
-@SuppressLint("DefaultLocale")
-fun formatearTiempo(milisegundos: Int): String {
-    val minutos = milisegundos / 60000
-    val segundos = (milisegundos % 60000) / 1000
-    // Esto asegura que si los segundos son menores a 10, pinte "1:05" y no "1:5"
-    return String.format("%d:%02d", minutos, segundos)
-}
 
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
