@@ -40,29 +40,38 @@ class ReproductorViewModel(application: Application) : AndroidViewModel(applicat
     private var _musicaSonando = MutableStateFlow(false)
     var musicaSonando = _musicaSonando.asStateFlow() // Esta es la que lee tu MainActivity
 
-    private val _progresoAudio = MutableStateFlow(0.0f)
+   private val _progresoAudio = MutableStateFlow(0.0f)
     var progresoAudio = _progresoAudio.asStateFlow()
 
     val volumenMaximoInicial = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
     val volumenActualInicial = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
 
     //Creación de variable reactiva para barra de volumen
-    var volumenAudio = MutableStateFlow(volumenActualInicial / volumenMaximoInicial)
+    private val _volumenAudio = MutableStateFlow(volumenActualInicial / volumenMaximoInicial)
+    val volumenAudio = _volumenAudio.asStateFlow()
 
     //Variable reactiva para índice de canción seleccionada
-    var indiceCancionActual = MutableStateFlow(0)
+    private val _indiceCancionActual = MutableStateFlow(0)
+    val indiceCancionActual = _indiceCancionActual.asStateFlow()
 
     // Variable que guarda la pantalla actual que se está mostrando.
     // rememberSavable conserva el valor aunque la pantalla se recree.
     // La aplicación inicia mostrando "TODAS_LAS_CANCIONES".
-    var pantallaActual = MutableStateFlow(Destino.REPRODUCTOR)
+    private var _pantallaActual = MutableStateFlow(Destino.TODAS_LAS_CANCIONES)
+    var pantallaActual = _pantallaActual.asStateFlow()
+
+    // Estados para los textos formateados de tiempo
+    private val _tiempoActualTexto = MutableStateFlow("00:00")
+    val tiempoActualTexto = _tiempoActualTexto.asStateFlow()
+
+    private val _tiempoTotalTexto = MutableStateFlow("00:00")
+    val tiempoTotalTexto = _tiempoTotalTexto.asStateFlow()
 
 
     init {
-        // Usamos el contenedor de corrutinas del ViewModel
+        // HILO 1: Cambiar de canción cuando cambie el índice
         viewModelScope.launch {
-            indiceCancionActual.collect { nuevoIndice ->
-                // Cada vez que cambie el índice, detenemos el reproductor de forma nativa
+            _indiceCancionActual.collect { nuevoIndice ->
                 mediaPlayer.stop()
                 mediaPlayer.release()
 
@@ -70,43 +79,108 @@ class ReproductorViewModel(application: Application) : AndroidViewModel(applicat
                 val cancionNueva = lista[nuevoIndice]
                 mediaPlayer = MediaPlayer.create(context, cancionNueva.audio)
 
-                if (musicaSonando.value) {
+                //En cuanto cargue la canción, calculamos su duración total fija en texto
+                _tiempoTotalTexto.value = formatearTiempo(mediaPlayer.duration)
+
+                // Le avisamos al MediaPlayer que, en cuanto termine la pista actual, ejecute la siguiente
+                mediaPlayer.setOnCompletionListener {
+                    cancionSiguiente() // Llama a la función que creamos para avanzar el índice
+                }
+
+                if (_musicaSonando.value) {
                     mediaPlayer.start()
                 }
             }
         }
-    }
 
-    // Hilo de fondo que se ejecuta mientras el reproductor esté visible
-    LaunchedEffect(pantallaActual) {
-        // Si el usuario está viendo el reproductor, empezamos a monitorear el hardware
-        while (pantallaActual == Destino.REPRODUCTOR) {
-            val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
-            val actual = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
+        // HILO 2: Monitorear el volumen físico del teléfono
+        viewModelScope.launch {
+            while (true) {
+                // Solo medimos el hardware si el usuario está metido en el Reproductor
+                if (_pantallaActual.value == Destino.REPRODUCTOR) {
+                    val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
+                    val actual = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
+                    val porcentajeReal = actual / max
 
-            // Si el usuario movió los botones físicos, actualizamos nuestra barra verde
-            val porcentajeReal = actual / max
-            if (volumenAudio != porcentajeReal) {
-                volumenAudio = porcentajeReal
+                    if (_volumenAudio.value != porcentajeReal) {
+                        _volumenAudio.value = porcentajeReal
+                    }
+                }
+                delay(100) // Revisa cada 100 milisegundos
             }
+        }
 
-            delay(100.milliseconds)
+        // HILO 3: Monitorear el progreso (barra verde) de la canción
+        viewModelScope.launch {
+            while (true) {
+                if (_musicaSonando.value && mediaPlayer.duration > 0) {
+                    val posicionActual = mediaPlayer.currentPosition
+
+                    // 1. Seguimos actualizando el porcentaje del Slider (0.0f a 1.0f)
+                    _progresoAudio.value = posicionActual.toFloat() / mediaPlayer.duration.toFloat()
+
+                    // 2. Formateamos la posición actual a texto en tiempo real
+                    _tiempoActualTexto.value = formatearTiempo(posicionActual)
+                }
+                delay(100)
+            }
         }
     }
 
-    //Creación de hilo para avisar a compose el estado de reproducción de audio para dibujarlo en pantalla
-    LaunchedEffect(musicaSonando) {
-        while (musicaSonando){
-            if (mediaPlayer.duration > 0) { // Evitamos dividir entre cero si aún no carga el audio
-                // Calculamos la fracción (Posición Actual / Duración Total)
-                progresoAudio = mediaPlayer.currentPosition.toFloat() / mediaPlayer.duration.toFloat()
-            }
-            delay(100.milliseconds)
+    fun togglePlay() {
+        if (mediaPlayer.isPlaying) {
+            mediaPlayer.pause()
+            _musicaSonando.value = false // Aquí sí te dejará cambiarlo porque es el MutableStateFlow interno
+        } else {
+            mediaPlayer.start()
+            _musicaSonando.value = true
         }
     }
+    fun seleccionarCancion(indice: Int) {
+        _indiceCancionActual.value = indice
+        _musicaSonando.value = true
+        _pantallaActual.value = Destino.REPRODUCTOR
+    }
+    fun actualizarProgreso(nuevoProgreso: Float) {
+        _progresoAudio.value = nuevoProgreso
+
+        // El ViewModel calcula los milisegundos de manera segura y le ordena al hardware viajar
+        val milisegundosDestino = (nuevoProgreso * mediaPlayer.duration).toInt()
+        mediaPlayer.seekTo(milisegundosDestino)
+    }
+    // Una sola función para controlar toda la navegación del reproductor
+    fun cambiarPantalla(destino: Destino) {
+        _pantallaActual.value = destino
+    }
+    fun cancionAnterior() {
+        val lista = DatosMusica().obtenerCanciones()
+        if (_indiceCancionActual.value > 0) {
+            _indiceCancionActual.value--
+        } else {
+            _indiceCancionActual.value = lista.size - 1 // Salta a la última
+        }
+    }
+
+    fun cancionSiguiente() {
+        val lista = DatosMusica().obtenerCanciones()
+        if (_indiceCancionActual.value < lista.size - 1) {
+            _indiceCancionActual.value++
+        } else {
+            _indiceCancionActual.value = 0 // Regresa a la primera
+        }
+    }
+    fun cambiarVolumen(nuevoPorcentaje: Float) {
+        _volumenAudio.value = nuevoPorcentaje
+        // Ajustamos el volumen real en el hardware del teléfono
+        val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val destino = (nuevoPorcentaje * max).toInt()
+        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, destino, 0)
+    }
+
 
 
 }
+
 
 @SuppressLint("DefaultLocale")
 fun formatearTiempo(milisegundos: Int): String {
@@ -115,3 +189,4 @@ fun formatearTiempo(milisegundos: Int): String {
     // Esto asegura que si los segundos son menores a 10, pinte "1:05" y no "1:5"
     return String.format("%d:%02d", minutos, segundos)
 }
+

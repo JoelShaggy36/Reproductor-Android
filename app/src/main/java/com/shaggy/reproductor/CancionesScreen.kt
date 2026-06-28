@@ -1,4 +1,4 @@
-package com.shaggy.reproductor
+    package com.shaggy.reproductor
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -121,20 +121,6 @@ fun CancionItem(cancion: Cancion){
             )
         }
 
-        // Botón con icono de opciones
-        IconButton(
-
-            // Acción que se ejecutará al presionarlo
-            onClick = {}
-
-        ) {
-
-            // Icono de tres puntos verticales
-            Icon(
-                Icons.Default.MoreVert,
-                contentDescription = "Más"
-            )
-        }
     }
 }
 
